@@ -1,21 +1,7 @@
 import os
-import subprocess
-import sys
 import re
 import logging
 import requests
-
-# লাইব্রেরি অটো ইনস্টল
-def install_dependencies():
-    packages = ['aiogram==2.25.1', 'requests']
-    for package in packages:
-        try:
-            __import__(package.split('==')[0])
-        except ImportError:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-
-install_dependencies()
-
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -33,32 +19,24 @@ dp = Dispatcher(bot)
 
 URL_PATTERN = r'https?://[^\s]+'
 
-# --- এপিআই কল করার উন্নত ফাংশন ---
 def get_short_url(long_url):
     try:
-        # অনেক সময় এপিআই এন্ডপয়েন্ট /api এর বদলে শুধু / হতে পারে। 
-        # আপাতত আপনার দেওয়া ফরম্যাটই ব্যবহার করছি।
+        # এপিআই রিকোয়েস্ট
         api_endpoint = f"https://{DOMAIN}/api?api={API_KEY}&url={long_url}"
-        
-        response = requests.get(api_endpoint, timeout=20)
+        response = requests.get(api_endpoint, timeout=15)
         
         if response.status_code == 200:
             res_text = response.text.strip()
-            
-            # চেক করা হচ্ছে এটি JSON কি না
-            try:
-                data = response.json()
-                # সম্ভাব্য সব ধরণের Key চেক করা হচ্ছে (developer ভেদে আলাদা হয়)
-                return data.get('shorted') or data.get('short') or data.get('url') or data.get('shortenedUrl') or res_text
-            except:
-                # যদি সরাসরি টেক্সট লিংক পাঠায়
-                return res_text
-        else:
-            return f"Error: {response.status_code}"
-    except Exception as e:
-        return f"Error: {str(e)}"
+            # যদি এপিআই শুধু একটা লিংক দেয়, তবে সেটা নেবে
+            # যদি ভুল করে পুরো টেক্সট পাঠায় তবে প্রথম লিংকটা ফিল্টার করবে
+            short_match = re.search(URL_PATTERN, res_text)
+            if short_match:
+                return short_match.group(0)
+            return res_text
+    except:
+        return None
+    return None
 
-# --- স্টার্ট কমান্ড ---
 @dp.message_handler(commands=['start'])
 async def send_welcome(message: types.Message):
     user = message.from_user
@@ -68,9 +46,7 @@ async def send_welcome(message: types.Message):
         InlineKeyboardButton("📢 Channel", url=f"https://t.me/{CHANNEL_USERNAME}")
     )
 
-    text = (f"👋 হাই {user.full_name}!\n"
-            f"🆔 আইডি: `{user.id}`\n\n"
-            "আমাকে যেকোনো লিংক বা পোস্ট পাঠান, আমি সব শর্ট করে দেব।")
+    text = f"👋 হাই {user.full_name}!\nআইডি: `{user.id}`\nযেকোনো লিংক পাঠান আমি শর্ট করে দেব।"
 
     try:
         photos = await message.from_user.get_profile_photos()
@@ -81,36 +57,21 @@ async def send_welcome(message: types.Message):
     except:
         await message.reply(text, reply_markup=keyboard, parse_mode="Markdown")
 
-# --- মেসেজ হ্যান্ডলার ---
 @dp.message_handler(content_types=['text'])
-async def handle_all_messages(message: types.Message):
-    input_text = message.text
-    urls = re.findall(URL_PATTERN, input_text)
+async def handle_msg(message: types.Message):
+    urls = re.findall(URL_PATTERN, message.text)
+    if not urls: return
 
-    if not urls:
-        return
-
-    status_msg = await message.answer("🔄 প্রসেসিং হচ্ছে...")
-    
-    final_text = input_text
-    found_any = False
+    wait = await message.answer("🔄 শর্ট করা হচ্ছে...")
+    new_text = message.text
 
     for url in urls:
-        short_link = get_short_url(url)
-        
-        # যদি লিংকটি সঠিক হয় (http আছে এমন)
-        if short_link and "http" in short_link:
-            final_text = final_text.replace(url, short_link)
-            found_any = True
-        else:
-            # যদি এপিআই কাজ না করে তবে এরর দেখাবে (Debug)
-            await message.answer(f"❌ লিংক শর্ট করতে সমস্যা হয়েছে!\nএপিআই থেকে আসা উত্তর: `{short_link}`")
-            await status_msg.delete()
-            return
+        short = get_short_url(url)
+        if short and "http" in short:
+            new_text = new_text.replace(url, short)
 
-    await status_msg.delete()
-    if found_any:
-        await message.answer(f"✅ **Shortened Post:**\n\n{final_text}", disable_web_page_preview=True)
+    await wait.delete()
+    await message.answer(f"✅ **Shortened Post:**\n\n{new_text}", disable_web_page_preview=True)
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
