@@ -22,7 +22,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import requests
 
 # --- কনফিগারেশন ---
-API_TOKEN = '8488533482:AAHfM7dS8CjZ1bL541BvOLOrfIWjSu0VJJs'  # @BotFather থেকে পাওয়া টোকেন দিন
+API_TOKEN = '8488533482:AAE4JBLU8I1cdboE4_o_qwb3yDe_-PA_ehU'  # @BotFather থেকে পাওয়া টোকেন দিন
 DOMAIN = "urlbotsot.vercel.app"
 API_KEY = "akashdeveloper"
 
