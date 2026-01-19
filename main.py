@@ -1,149 +1,143 @@
+import os
 import sys
 import subprocess
-import os
-import json
-import re
-import asyncio
-import logging
 
 # ==========================================
-# ১. অটো লাইব্রেরি ইন্সটলার (যা যা লাগবে সব অটো হবে)
+# ১. অটোমেটিক লাইব্রেরি ইন্সটলার (Zero Setup)
 # ==========================================
-def install_dependencies():
-    required = {'aiogram', 'aiohttp'}
-    for package in required:
+def auto_install():
+    # যা যা লাইব্রেরি লাগবে তার লিস্ট
+    packages = ["aiogram", "aiohttp"]
+    
+    for package in packages:
         try:
             __import__(package)
         except ImportError:
-            print(f"📦 Installing {package}...")
+            print(f"📦 {package} পাওয়া যায়নি। অটোমেটিক ইন্সটল করা হচ্ছে... দয়া করে অপেক্ষা করুন।")
             subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+            print(f"✅ {package} ইন্সটল সফল হয়েছে।")
 
-install_dependencies()
+# কোড চলার শুরুতেই এই ফাংশনটি কাজ করবে
+auto_install()
 
+# লাইব্রেরিগুলো ইমপোর্ট করা
+import logging
+import json
+import re
+import asyncio
+import aiohttp
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.types import Message
-import aiohttp
 
 # ==========================================
 # ২. কনফিগারেশন (এখানে আপনার টোকেন দিন)
 # ==========================================
-API_TOKEN = '8488533482:AAHfM7dS8CjZ1bL541BvOLOrfIWjSu0VJJs'  # <--- এখানে বট টোকেন বসান
-DEFAULT_DOMAIN = 'urlbotsot.vercel.app'     # আপনার শর্টনার ডোমেইন
-DB_FILE = 'database.json'
+API_TOKEN = '8488533482:AAHfM7dS8CjZ1bL541BvOLOrfIWjSu0VJJs'  # <--- এখানে আপনার বট টোকেন দিন
+DEFAULT_DOMAIN = 'urlbotsot.vercel.app'     # আপনার শর্টনার ডোমেইন (যেমন: gplinks.in)
+DATABASE_FILE = 'bot_database.json'
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
-# ==========================================
-# ৩. ডাটাবেস ম্যানেজমেন্ট (JSON ফাইল)
-# ==========================================
-def load_db():
-    if not os.path.exists(DB_FILE):
+# --- ডাটাবেস হ্যান্ডলিং (JSON) ---
+def get_db():
+    if not os.path.exists(DATABASE_FILE):
         return {}
-    with open(DB_FILE, 'r') as f:
+    with open(DATABASE_FILE, 'r') as f:
         try:
             return json.load(f)
-        except:
-            return {}
+        except: return {}
 
 def save_db(data):
-    with open(DB_FILE, 'w') as f:
+    with open(DATABASE_FILE, 'w') as f:
         json.dump(data, f, indent=4)
 
-# ==========================================
-# ৪. এপিআই শর্টনার ফাংশন
-# ==========================================
-async def get_short_url(api, long_url):
-    api_url = f"https://{DEFAULT_DOMAIN}/api?api={api}&url={long_url}"
+# --- ইউআরএল শর্ট করার ফাংশন ---
+async def shorten_url(api_key, long_url):
+    api_url = f"https://{DEFAULT_DOMAIN}/api?api={api_key}&url={long_url}"
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(api_url, timeout=10) as resp:
-                data = await resp.json()
-                if data.get('status') == 'success':
-                    return data.get('shortenedUrl')
+            async with session.get(api_url, timeout=15) as response:
+                res_data = await response.json()
+                if res_data.get('status') == 'success':
+                    return res_data.get('shortenedUrl')
                 return long_url
     except:
         return long_url
 
 # ==========================================
-# ৫. বটের কমান্ডসমূহ
+# ৩. বটের কমান্ডসমূহ
 # ==========================================
 
-# /start কমান্ড
 @dp.message(Command("start"))
-async def cmd_start(message: Message):
+async def start_handler(message: Message):
     user = message.from_user
     text = (
-        f"👋 **স্বাগতম, {user.full_name}!**\n\n"
-        f"🆔 আপনার আইডি: `{user.id}`\n"
+        f"👋 হ্যালো {user.full_name}!\n\n"
+        f"🆔 আইডি: `{user.id}`\n"
         f"👤 ইউজারনেম: @{user.username}\n\n"
         "📜 **বট কমান্ডসমূহ:**\n"
-        "🔹 `/setapi API_KEY` - শর্টনার সাইটের এপিআই সেট করুন।\n"
-        "🔹 `/setfooter Name | Link` - নতুন ফুটার এড করুন।\n"
-        "🔹 `/listfooters` - আপনার সব ফুটার দেখুন।\n"
-        "🔹 `/delfooter ID` - নির্দিষ্ট ফুটার ডিলিট করুন।\n\n"
-        "📢 **কিভাবে কাজ করে?**\n"
-        "যেকোনো পোস্ট (টেক্সট, ফটো, ভিডিও) আমাকে পাঠান, আমি সব লিংক অটো শর্ট করে ফুটারসহ রিপ্লাই দেব।"
+        "🔹 `/setapi API_KEY` - আপনার শর্টনার এপিআই কি সেট করুন\n"
+        "🔹 `/setfooter নাম | লিংক` - ফুটার যোগ করুন (আনলিমিটেড)\n"
+        "🔹 `/listfooters` - ফুটার লিস্ট দেখুন\n"
+        "🔹 `/delfooter ID` - নির্দিষ্ট ফুটার ডিলিট করুন\n\n"
+        "যেকোনো পোস্ট পাঠান বা ফরওয়ার্ড করুন, আমি সব লিংক শর্ট করে সাজিয়ে দেব।"
     )
     await message.reply(text, parse_mode="Markdown")
 
-# API সেট করা
 @dp.message(Command("setapi"))
-async def cmd_setapi(message: Message):
+async def set_api(message: Message):
     args = message.text.split()
     if len(args) < 2:
-        return await message.reply("❌ ভুল ফরম্যাট! লিখুন: `/setapi your_api_key`", parse_mode="Markdown")
+        return await message.reply("❌ ফরম্যাট: `/setapi আপনার_এপিআই_কি`")
     
     uid = str(message.from_user.id)
-    db = load_db()
+    db = get_db()
     if uid not in db: db[uid] = {"api": "", "footers": []}
     db[uid]["api"] = args[1]
     save_db(db)
-    await message.reply("✅ **API Key সফলভাবে সেট করা হয়েছে!**")
+    await message.reply("✅ আপনার API Key সফলভাবে সেভ হয়েছে।")
 
-# ফুটার সেট করা
 @dp.message(Command("setfooter"))
-async def cmd_setfooter(message: Message):
+async def add_footer(message: Message):
     content = message.text.replace("/setfooter", "").strip()
     if "|" not in content:
-        return await message.reply("❌ ভুল ফরম্যাট! লিখুন: `/setfooter নাম | লিংক`", parse_mode="Markdown")
+        return await message.reply("❌ ফরম্যাট: `/setfooter চ্যানেলের নাম | লিংক`")
     
     name, link = content.split("|", 1)
     uid = str(message.from_user.id)
-    db = load_db()
-    if uid not in db: db[uid] = {"api": "", "footers": []}
+    db = get_db()
     
+    if uid not in db: db[uid] = {"api": "", "footers": []}
     db[uid]["footers"].append({"name": name.strip(), "link": link.strip()})
     save_db(db)
-    await message.reply(f"✅ **নতুন ফুটার যোগ হয়েছে:**\n`{name.strip()}`")
+    await message.reply(f"✅ ফুটার যোগ হয়েছে: **{name.strip()}**")
 
-# ফুটার লিস্ট
 @dp.message(Command("listfooters"))
-async def cmd_listfooters(message: Message):
+async def list_footers(message: Message):
     uid = str(message.from_user.id)
-    db = load_db()
+    db = get_db()
     footers = db.get(uid, {}).get("footers", [])
     
     if not footers:
-        return await message.reply("📭 আপনার কোনো ফুটার সেট করা নেই।")
+        return await message.reply("আপনার কোনো ফুটার সেট করা নেই।")
     
     msg = "📋 **আপনার ফুটারসমূহ:**\n\n"
     for i, f in enumerate(footers, 1):
         msg += f"{i}. {f['name']} - {f['link']}\n"
-    msg += "\nডিলিট করতে লিখুন: `/delfooter ID`"
+    msg += "\nডিলিট করতে লিখুন: `/delfooter ID` (যেমন: /delfooter 1)"
     await message.reply(msg, disable_web_page_preview=True)
 
-# ফুটার ডিলিট
 @dp.message(Command("delfooter"))
-async def cmd_delfooter(message: Message):
+async def del_footer(message: Message):
     args = message.text.split()
     if len(args) < 2:
-        return await message.reply("❌ লিখুন: `/delfooter ID`")
+        return await message.reply("❌ ফরম্যাট: `/delfooter ID` (আইডি পেতে /listfooters দেখুন)")
     
     uid = str(message.from_user.id)
-    db = load_db()
+    db = get_db()
     footers = db.get(uid, {}).get("footers", [])
     
     try:
@@ -152,66 +146,65 @@ async def cmd_delfooter(message: Message):
             removed = footers.pop(idx)
             db[uid]["footers"] = footers
             save_db(db)
-            await message.reply(f"🗑 **ডিলিট হয়েছে:** {removed['name']}")
+            await message.reply(f"🗑 **ডিলিট করা হয়েছে:** {removed['name']}")
         else:
-            await message.reply("❌ ভুল আইডি! লিস্ট চেক করুন।")
+            await message.reply("❌ ভুল আইডি!")
     except:
-        await message.reply("❌ আইডি সংখ্যায় হতে হবে।")
+        await message.reply("❌ আইডি সংখ্যায় দিন।")
 
 # ==========================================
-# ৬. পোস্ট প্রসেসিং (লিংক শর্ট করা ও রিপ্লাই দেওয়া)
+# ৪. মেইন প্রসেসিং (লিংক শর্ট ও পোস্ট রিপ্লাই)
 # ==========================================
 
 @dp.message(F.text | F.caption)
-async def handle_post(message: Message):
+async def process_message(message: Message):
     uid = str(message.from_user.id)
-    db = load_db()
-    
-    # চেক ইউজার এপিআই
+    db = get_db()
     user_data = db.get(uid)
+
     if not user_data or not user_data.get("api"):
-        return await message.reply("⚠️ আগে `/setapi` কমান্ড দিয়ে আপনার API Key সেট করুন।")
-    
+        return await message.reply("⚠️ আপনি এখনো API সেট করেননি! আগে `/setapi` কমান্ড ব্যবহার করুন।")
+
     api_key = user_data["api"]
     footers = user_data.get("footers", [])
     
-    original_text = message.text or message.caption or ""
-    urls = re.findall(r'(https?://[^\s]+)', original_text)
+    original_content = message.text or message.caption or ""
+    # লিংক খুঁজে বের করার Regex
+    urls = re.findall(r'(https?://[^\s]+)', original_content)
     
-    # লিংক থাকলে শর্ট করবে
     if urls:
-        status_msg = await message.reply("⏳ প্রসেসিং হচ্ছে...")
-        new_text = original_text
+        waiting = await message.reply("⏳ লিংকগুলো শর্ট করা হচ্ছে... দয়া করে অপেক্ষা করুন।")
+        new_content = original_content
         for url in urls:
-            if DEFAULT_DOMAIN in url: continue
-            short = await get_short_url(api_key, url)
-            new_text = new_text.replace(url, short)
-        await status_msg.delete()
+            # যদি লিংকটি আগে থেকেই আপনার ডোমেইনের হয় তবে শর্ট করার দরকার নেই
+            if DEFAULT_DOMAIN in url:
+                continue
+            shorted = await shorten_url(api_key, url)
+            new_content = new_content.replace(url, shorted)
+        await waiting.delete()
     else:
-        new_text = original_text
+        new_content = original_content
 
-    # ফুটার যোগ করা (সুন্দর স্টাইলে)
+    # ফুটার সাজানো
     if footers:
-        new_text += "\n\n" + "━" * 15 + "\n"
+        new_content += "\n\n" + "━" * 15 + "\n"
         for f in footers:
-            new_text += f"📢 [{f['name']}]({f['link']})\n"
+            new_content += f"📢 [{f['name']}]({f['link']})\n"
 
-    # আউটপুট (ফটো/ভিডিও/টেক্সট)
+    # রিপ্লাই পাঠানো (ফটো, ভিডিও বা টেক্সট অনুযায়ী)
     try:
         if message.photo:
-            await message.answer_photo(message.photo[-1].file_id, caption=new_text, parse_mode="Markdown")
+            await message.answer_photo(message.photo[-1].file_id, caption=new_content, parse_mode="Markdown")
         elif message.video:
-            await message.answer_video(message.video.file_id, caption=new_text, parse_mode="Markdown")
+            await message.answer_video(message.video.file_id, caption=new_content, parse_mode="Markdown")
         else:
-            await message.answer(new_text, parse_mode="Markdown", disable_web_page_preview=True)
+            await message.answer(new_content, parse_mode="Markdown", disable_web_page_preview=True)
     except Exception as e:
         await message.answer(f"❌ এরর: {str(e)}")
 
-# ==========================================
-# ৭. বট রান করা
-# ==========================================
+# বট রান করা
 async def main():
-    print("🚀 বট সফলভাবে চালু হয়েছে!")
+    print("🤖 বট সফলভাবে চালু হয়েছে এবং এটি অনলাইনে আছে।")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
