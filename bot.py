@@ -5,7 +5,7 @@ import re
 import logging
 import requests
 
-# --- ১. লাইব্রেরি অটো ইনস্টল সিস্টেম ---
+# লাইব্রেরি অটো ইনস্টল
 def install_dependencies():
     packages = ['aiogram==2.25.1', 'requests']
     for package in packages:
@@ -20,7 +20,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# --- ২. কনফিগারেশন (আপনার দেওয়া তথ্য অনুযায়ী) ---
+# --- কনফিগারেশন ---
 API_TOKEN = '8488533482:AAE4JBLU8I1cdboE4_o_qwb3yDe_-PA_ehU'
 DOMAIN = "urlbotsot.vercel.app"
 API_KEY = "akashdeveloper"
@@ -31,89 +31,86 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
-# লিংক শনাক্ত করার Regex
 URL_PATTERN = r'https?://[^\s]+'
 
-# --- ৩. এপিআই শর্টনার ফাংশন ---
+# --- এপিআই কল করার উন্নত ফাংশন ---
 def get_short_url(long_url):
     try:
-        # আপনার এপিআই ফরম্যাট অনুযায়ী
+        # অনেক সময় এপিআই এন্ডপয়েন্ট /api এর বদলে শুধু / হতে পারে। 
+        # আপাতত আপনার দেওয়া ফরম্যাটই ব্যবহার করছি।
         api_endpoint = f"https://{DOMAIN}/api?api={API_KEY}&url={long_url}"
-        response = requests.get(api_endpoint, timeout=15)
+        
+        response = requests.get(api_endpoint, timeout=20)
         
         if response.status_code == 200:
-            # যদি এপিআই শুধু টেক্সট পাঠায়
-            short_link = response.text.strip()
-            # যদি ভুলবশত JSON আসে তবে তা হ্যান্ডেল করা
-            if "{" in short_link:
-                try:
-                    res_json = response.json()
-                    return res_json.get('shorted') or res_json.get('url') or long_url
-                except:
-                    return long_url
-            return short_link
-    except:
-        return None
-    return None
+            res_text = response.text.strip()
+            
+            # চেক করা হচ্ছে এটি JSON কি না
+            try:
+                data = response.json()
+                # সম্ভাব্য সব ধরণের Key চেক করা হচ্ছে (developer ভেদে আলাদা হয়)
+                return data.get('shorted') or data.get('short') or data.get('url') or data.get('shortenedUrl') or res_text
+            except:
+                # যদি সরাসরি টেক্সট লিংক পাঠায়
+                return res_text
+        else:
+            return f"Error: {response.status_code}"
+    except Exception as e:
+        return f"Error: {str(e)}"
 
-# --- ৪. স্টার্ট কমান্ড হ্যান্ডলার ---
+# --- স্টার্ট কমান্ড ---
 @dp.message_handler(commands=['start'])
 async def send_welcome(message: types.Message):
     user = message.from_user
-    
-    # বাটন তৈরি
     keyboard = InlineKeyboardMarkup(row_width=2)
-    admin_btn = InlineKeyboardButton("👨‍💻 Admin Contact", url=f"https://t.me/{ADMIN_USERNAME}")
-    dev_btn = InlineKeyboardButton("📢 Developer Channel", url=f"https://t.me/{CHANNEL_USERNAME}")
-    keyboard.add(admin_btn, dev_btn)
-
-    welcome_text = (
-        f"👋 আসসালামু আলাইকুম, {user.full_name}!\n\n"
-        f"🆔 আপনার আইডি: `{user.id}`\n"
-        f"👤 প্রোফাইল লিংক: [Click Here](tg://user?id={user.id})\n\n"
-        "🔗 যেকোনো পোস্ট পাঠান যাতে লিংক আছে, আমি সব শর্ট করে রিপ্লাই দেব।"
+    keyboard.add(
+        InlineKeyboardButton("👨‍💻 Admin", url=f"https://t.me/{ADMIN_USERNAME}"),
+        InlineKeyboardButton("📢 Channel", url=f"https://t.me/{CHANNEL_USERNAME}")
     )
 
-    try:
-        # ইউজারের প্রোফাইল পিকচার সংগ্রহ
-        user_photos = await bot.get_user_profile_photos(user.id)
-        if user_photos.total_count > 0:
-            photo_id = user_photos.photos[0][-1].file_id
-            await message.reply_photo(photo_id, caption=welcome_text, reply_markup=keyboard, parse_mode="Markdown")
-        else:
-            await message.reply(welcome_text, reply_markup=keyboard, parse_mode="Markdown")
-    except:
-        await message.reply(welcome_text, reply_markup=keyboard, parse_mode="Markdown")
+    text = (f"👋 হাই {user.full_name}!\n"
+            f"🆔 আইডি: `{user.id}`\n\n"
+            "আমাকে যেকোনো লিংক বা পোস্ট পাঠান, আমি সব শর্ট করে দেব।")
 
-# --- ৫. পোস্ট হ্যান্ডলার (লিংক শর্ট করার জন্য) ---
+    try:
+        photos = await message.from_user.get_profile_photos()
+        if photos.total_count > 0:
+            await message.reply_photo(photos.photos[0][-1].file_id, caption=text, reply_markup=keyboard, parse_mode="Markdown")
+        else:
+            await message.reply(text, reply_markup=keyboard, parse_mode="Markdown")
+    except:
+        await message.reply(text, reply_markup=keyboard, parse_mode="Markdown")
+
+# --- মেসেজ হ্যান্ডলার ---
 @dp.message_handler(content_types=['text'])
-async def process_post(message: types.Message):
+async def handle_all_messages(message: types.Message):
     input_text = message.text
     urls = re.findall(URL_PATTERN, input_text)
 
     if not urls:
-        # যদি কোনো লিংক না থাকে তবে কোনো রিপ্লাই দিবে না
         return
 
-    wait_msg = await message.answer("⚡ আপনার পোস্টের লিংকগুলো শর্ট করা হচ্ছে, দয়া করে অপেক্ষা করুন...")
+    status_msg = await message.answer("🔄 প্রসেসিং হচ্ছে...")
     
-    new_text = input_text
-    success_count = 0
+    final_text = input_text
+    found_any = False
 
     for url in urls:
-        # শর্ট লিংক তৈরি
         short_link = get_short_url(url)
+        
+        # যদি লিংকটি সঠিক হয় (http আছে এমন)
         if short_link and "http" in short_link:
-            new_text = new_text.replace(url, short_link)
-            success_count += 1
+            final_text = final_text.replace(url, short_link)
+            found_any = True
+        else:
+            # যদি এপিআই কাজ না করে তবে এরর দেখাবে (Debug)
+            await message.answer(f"❌ লিংক শর্ট করতে সমস্যা হয়েছে!\nএপিআই থেকে আসা উত্তর: `{short_link}`")
+            await status_msg.delete()
+            return
 
-    await wait_msg.delete()
-
-    if success_count > 0:
-        await message.answer(f"✅ **Shortened Post:**\n\n{new_text}", disable_web_page_preview=True)
-    else:
-        await message.answer("❌ এপিআই থেকে লিংক পাওয়া যায়নি। দয়া করে আপনার এপিআই বা ডোমেন চেক করুন।")
+    await status_msg.delete()
+    if found_any:
+        await message.answer(f"✅ **Shortened Post:**\n\n{final_text}", disable_web_page_preview=True)
 
 if __name__ == '__main__':
-    print("বটটি সফলভাবে চালু হয়েছে...")
     executor.start_polling(dp, skip_updates=True)
